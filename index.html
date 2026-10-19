@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprite Packer</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --panel2: #252932; --line: #333844;
+    --text: #e6e8ec; --muted: #9aa1ad; --accent: #4f9cff; --accent2: #2f7de0;
+    --ok: #4cc38a; --warn: #f0b429; --err: #ef5b5b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header span { color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: 300px minmax(0, 1fr) 300px; height: calc(100vh - 53px); }
+  aside { padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+  aside.frames { border-right: 1px solid var(--line); padding: 0; gap: 0; }
+  aside.options { border-left: 1px solid var(--line); }
+  section.view { padding: 16px; display: flex; flex-direction: column; gap: 16px; min-width: 0; overflow: auto; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+  .row label { color: var(--text); }
+  .hint { color: var(--muted); font-size: 12px; margin: -2px 0 6px; }
+  input[type=number], input[type=text], select { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; width: 110px; font: inherit; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 8px 12px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btns button { flex: 1; }
+
+  /* left: frame list */
+  .frames-head { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  .frames-head h2 { margin: 0; flex: 1; }
+  .frames-head button { padding: 4px 9px; font-size: 13px; }
+  .selbar { display: none; padding: 8px 14px; gap: 6px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 49px; z-index: 2; font-size: 13px; }
+  .selbar.show { display: flex; }
+  .selbar .count { flex: 1; color: var(--accent); font-weight: 600; }
+  .selbar button { padding: 4px 9px; font-size: 13px; }
+  .selbar select { width: auto; padding: 4px 6px; font-size: 13px; }
+  .drop-empty { margin: 14px; border: 2px dashed var(--line); border-radius: 10px; padding: 40px 12px; text-align: center; cursor: pointer; color: var(--muted); transition: .15s; }
+  .drop-empty:hover { border-color: var(--accent); color: var(--text); }
+  .drop-empty b { color: var(--text); }
+  aside.frames.over { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  .frames-foot { padding: 8px 14px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--bg); margin-top: auto; }
+  .group { border-bottom: 1px solid var(--line); }
+  .ghead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+  .ghead .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .ghead .gname { flex: 1; min-width: 0; font-weight: 600; background: none; border: 1px solid transparent; padding: 2px 4px; width: auto; }
+  .ghead .gname:hover:not(:disabled), .ghead .gname:focus { border-color: var(--line); }
+  .ghead .gname:disabled { color: var(--muted); }
+  .ghead .gcount { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .ghead .gtrim { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .ghead .gbtn { border: 0; background: none; color: var(--muted); padding: 2px 6px; font-size: 12px; }
+  .ghead .gbtn:hover { color: var(--text); }
+  .gsel { cursor: pointer; }
+  .list { list-style: none; margin: 0; padding: 0 0 6px; }
+  .file { display: flex; align-items: center; gap: 10px; padding: 4px 12px; cursor: pointer; user-select: none; }
+  .file.sel { background: rgba(79,156,255,.14); }
+  .file .idx { width: 22px; text-align: right; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .file img { width: 32px; height: 32px; object-fit: contain; flex: none; border-radius: 4px; background: repeating-conic-gradient(#2c313b 0 25%, #252932 0 50%) 0 0/8px 8px; }
+  .file .meta { flex: 1; min-width: 0; }
+  .file .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .file .size { color: var(--muted); font-size: 11px; }
+  .file .rm { border: 0; background: none; color: var(--muted); padding: 2px 6px; font-size: 16px; line-height: 1; visibility: hidden; }
+  .file:hover .rm { visibility: visible; }
+  .file .rm:hover { color: var(--err); }
+
+  /* center */
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .stats { display: flex; gap: 18px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+  .stats b { color: var(--text); }
+  .sheet-wrap { overflow: auto; max-height: 60vh; border-radius: 6px; background: repeating-conic-gradient(#2c313b 0 25%, #20242b 0 50%) 0 0/16px 16px; }
+  .sheet-wrap canvas { display: block; image-rendering: pixelated; }
+  .previews { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .anim-box { display: flex; align-items: center; justify-content: center; height: 300px; border-radius: 6px; background: repeating-conic-gradient(#2c313b 0 25%, #20242b 0 50%) 0 0/16px 16px; overflow: hidden; }
+  .anim-box canvas { max-width: 100%; max-height: 100%; }
+  #phaserBox { height: 300px; border-radius: 6px; overflow: hidden; background: #20242b; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; margin: 0; max-height: 280px; }
+  .empty { color: var(--muted); text-align: center; padding: 60px 20px; }
+  .msg { font-size: 13px; }
+  .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
+  aside.options h2 { margin-top: 4px; }
+
+  @media (max-width: 1280px) { .previews { grid-template-columns: 1fr; } }
+  @media (max-width: 960px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    aside.frames, aside.options { border: 0; border-bottom: 1px solid var(--line); }
+    aside.frames { max-height: 50vh; }
+    section.view { overflow: visible; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sprite Packer</h1>
+  <span>PNG frames → sprite sheet + JSON (Phaser 3, JSON Hash)</span>
+</header>
+<main>
+  <aside class="frames" id="drop">
+    <div class="frames-head">
+      <h2>Frames</h2>
+      <button id="addFiles" title="Add PNG files">+ Files</button>
+      <button id="pickFolder" title="Add a whole folder">+ Folder</button>
+      <button id="clearBtn" title="Remove all frames" disabled>Clear</button>
+    </div>
+    <div class="selbar" id="selbar">
+      <span class="count" id="selCount"></span>
+      <button id="groupBtn" title="Put the selected frames into a new group">New group</button>
+      <select id="moveTo" title="Move the selected frames to a group"></select>
+      <button id="unselectBtn" title="Clear selection">✕</button>
+    </div>
+    <input type="file" id="fileInput" accept="image/png" multiple hidden>
+    <div class="drop-empty" id="dropEmpty"><b>Drop PNG files here</b><br>or click to browse</div>
+    <div id="groups"></div>
+    <div class="frames-foot" id="countHint">No frames yet.</div>
+  </aside>
+
+  <section class="view">
+    <div class="empty" id="empty">Add frame images in the left panel to get started.</div>
+    <div id="result" style="display:none;flex-direction:column;gap:16px">
+      <div class="card">
+        <h2>Sprite sheet</h2>
+        <div class="stats" id="stats"></div>
+        <div class="row" style="justify-content:flex-start;gap:16px;margin:10px 0">
+          <label><input type="checkbox" id="showBounds" checked> Show frame bounds</label>
+          <label>Zoom <select id="zoom"><option value="0.25">25%</option><option value="0.5">50%</option><option value="1" selected>100%</option><option value="2">200%</option></select></label>
+        </div>
+        <div class="sheet-wrap"><canvas id="sheetView"></canvas></div>
+      </div>
+
+      <div class="previews">
+        <div class="card">
+          <h2>Animation preview</h2>
+          <div class="row" style="justify-content:flex-start;gap:12px">
+            <button id="playBtn">Pause</button>
+            <button id="replayBtn">Replay</button>
+            <span class="hint" id="frameLabel" style="margin:0"></span>
+          </div>
+          <div class="anim-box"><canvas id="animView"></canvas></div>
+        </div>
+        <div class="card">
+          <h2>Test in Phaser 3</h2>
+          <div class="row" style="justify-content:flex-start;gap:12px">
+            <button id="phaserBtn">Run in Phaser</button>
+            <span class="hint" id="phaserMsg" style="margin:0">Loads the exact PNG + JSON generated here</span>
+          </div>
+          <div id="phaserBox">Click "Run in Phaser" to test</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Phaser sample code</h2>
+        <pre id="code"></pre>
+      </div>
+      <div class="card">
+        <h2>JSON</h2>
+        <pre id="jsonView"></pre>
+      </div>
+    </div>
+  </section>
+
+  <aside class="options">
+    <div>
+      <h2>Sprite sheet</h2>
+      <div class="row"><label for="optPadding">Padding (px)</label><input type="number" id="optPadding" value="0" min="0" max="64"></div>
+      <div class="row"><label for="optMax">Max size</label>
+        <select id="optMax"><option>1024</option><option>2048</option><option selected>4096</option><option>8192</option></select></div>
+      <div class="row"><label for="optPot">Power of two size</label><input type="checkbox" id="optPot"></div>
+      <div class="row"><label for="optExt">Keep .png in frame names</label><input type="checkbox" id="optExt" checked></div>
+      <p class="hint">Trim is set per group in the left panel.</p>
+    </div>
+
+    <div>
+      <h2>Animation</h2>
+      <div class="row"><label for="fps">FPS</label><input type="number" id="fps" value="24" min="1" max="120"></div>
+      <div class="row"><label for="optLoop">Loop</label><input type="checkbox" id="optLoop" checked></div>
+      <div class="row"><label for="optEnd">On complete</label>
+        <select id="optEnd" disabled style="width:150px">
+          <option value="hold">Stop on last frame</option>
+          <option value="first">Return to first frame</option>
+          <option value="hide">Hide sprite</option>
+        </select></div>
+      <p class="hint">Only used when Loop is off.</p>
+    </div>
+
+    <div>
+      <h2>Export</h2>
+      <div class="row"><label for="optName">File name</label><input type="text" id="optName" value="sprite" style="width:150px"></div>
+      <div class="btns" style="margin-top:10px">
+        <button class="primary" id="dlBoth" disabled>Download PNG + JSON</button>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button id="dlPng" disabled>PNG only</button>
+        <button id="dlJson" disabled>JSON only</button>
+      </div>
+      <p class="msg" id="msg"></p>
+    </div>
+  </aside>
+</main>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const PHASER_URL = 'https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js';
+const GROUP_COLORS = ['#f0b429', '#4cc38a', '#ef5b5b', '#b07cff', '#2ec4c4', '#ff8a3d', '#e86fb5'];
+const DEFAULT_GROUP = 0;
+
+/**
+ * Frames are one flat, name-sorted list (that's the animation order).
+ * Groups only decide trim: every frame belongs to exactly one group, by default the "Ungrouped" one.
+ * @typedef {{id:number, name:string, img:HTMLImageElement, url:string, groupId:number, trimBounds?:object}} Frame
+ * @typedef {{id:number, name:string, trim:boolean, color:string}} Group
+ */
+/** @type {Frame[]} */
+let frames = [];
+/** @type {Group[]} */
+let groups = [{ id: DEFAULT_GROUP, name: 'Ungrouped', trim: false, color: '#4f9cff' }];
+let nextFrameId = 1, nextGroupId = 1;
+const selected = new Set(); // frame ids
+let lastClicked = null;
+let result = null; // { canvas, json, rects, opts }
+
+const groupOf = f => groups.find(g => g.id === f.groupId) || groups[0];
+
+// ---------- input ----------
+const naturalCompare = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve({ name: file.name, img, url });
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image: ' + file.name)); };
+    img.src = url;
+  });
+}
+
+async function addFiles(fileList) {
+  const files = [...fileList].filter(f => f.type === 'image/png' || /\.png$/i.test(f.name));
+  if (!files.length) return setMsg('No PNG files found.', 'err');
+  const loaded = await Promise.allSettled(files.map(loadImage));
+  const errors = loaded.filter(r => r.status === 'rejected').map(r => r.reason.message);
+  const byName = new Map(frames.map(f => [f.name, f]));
+  for (const r of loaded) if (r.status === 'fulfilled') {
+    const old = byName.get(r.value.name);
+    if (old) URL.revokeObjectURL(old.url);
+    // re-uploading a file with the same name replaces it but keeps its group
+    byName.set(r.value.name, { ...r.value, id: nextFrameId++, groupId: old ? old.groupId : DEFAULT_GROUP });
+  }
+  frames = [...byName.values()].sort((a, b) => naturalCompare(a.name, b.name));
+  pruneSelection();
+  setMsg(errors.join('; '), errors.length ? 'err' : '');
+  renderList();
+  rebuild();
+}
+
+async function readEntries(entries) {
+  const out = [];
+  async function walk(entry) {
+    if (entry.isFile) out.push(await new Promise((res, rej) => entry.file(res, rej)));
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      let batch;
+      do {
+        batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        for (const child of batch) await walk(child);
+      } while (batch.length);
+    }
+  }
+  for (const en of entries) await walk(en);
+  return out;
+}
+async function filesFromDrop(dt) {
+  const entries = [...(dt.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  return entries.some(en => en.isDirectory) ? readEntries(entries) : [...dt.files];
+}
+
+// ---------- groups & selection ----------
+function pruneSelection() {
+  const ids = new Set(frames.map(f => f.id));
+  for (const id of [...selected]) if (!ids.has(id)) selected.delete(id);
+  // drop custom groups that no longer have frames
+  groups = groups.filter(g => g.id === DEFAULT_GROUP || frames.some(f => f.groupId === g.id));
+}
+
+function createGroupFromSelection() {
+  if (!selected.size) return;
+  const used = new Set(groups.map(g => g.name));
+  let n = 1; while (used.has(`Group ${n}`)) n++;
+  const g = { id: nextGroupId++, name: `Group ${n}`, trim: true, color: GROUP_COLORS[(nextGroupId - 2) % GROUP_COLORS.length] };
+  groups.push(g);
+  moveSelectionTo(g.id);
+}
+
+function moveSelectionTo(groupId) {
+  for (const f of frames) if (selected.has(f.id)) f.groupId = groupId;
+  selected.clear();
+  pruneSelection();
+  renderList();
+  rebuild();
+}
+
+function ungroup(g) {
+  for (const f of frames) if (f.groupId === g.id) f.groupId = DEFAULT_GROUP;
+  pruneSelection();
+  renderList();
+  rebuild();
+}
+
+function removeFrame(f) {
+  URL.revokeObjectURL(f.url);
+  frames = frames.filter(x => x !== f);
+  pruneSelection();
+  renderList();
+  rebuild();
+}
+
+// ---------- left panel ----------
+let displayOrder = []; // frame ids as listed on screen (for shift-click ranges)
+
+function onFrameClick(e, f) {
+  if (e.shiftKey && lastClicked !== null) {
+    const a = displayOrder.indexOf(lastClicked), b = displayOrder.indexOf(f.id);
+    if (a >= 0 && b >= 0) {
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      for (let i = lo; i <= hi; i++) selected.add(displayOrder[i]);
+    }
+  } else if (selected.has(f.id)) selected.delete(f.id);
+  else selected.add(f.id);
+  lastClicked = f.id;
+  renderList();
+}
+
+function renderList() {
+  const box = $('groups');
+  box.innerHTML = '';
+  displayOrder = [];
+  const animIndex = new Map(frames.map((f, i) => [f.id, i + 1]));
+  // custom groups first, then the ungrouped frames
+  const ordered = [...groups.filter(g => g.id !== DEFAULT_GROUP), groups[0]];
+  for (const g of ordered) {
+    const members = frames.filter(f => f.groupId === g.id);
+    if (!members.length) continue;
+    const isDefault = g.id === DEFAULT_GROUP;
+    const sec = document.createElement('section');
+    sec.className = 'group';
+    sec.innerHTML = `
+      <div class="ghead">
+        <input type="checkbox" class="gsel" title="Select all frames in this group">
+        <span class="swatch"></span>
+        <input type="text" class="gname" title="Rename group">
+        <span class="gcount"></span>
+        <label class="gtrim" title="Trim applies to every frame in this group"><input type="checkbox"> Trim</label>
+        ${isDefault ? '' : '<button class="gbtn" title="Ungroup: move these frames back to Ungrouped">Ungroup</button>'}
+      </div>
+      <ul class="list"></ul>`;
+    sec.querySelector('.swatch').style.background = g.color;
+    const nameInput = sec.querySelector('.gname');
+    nameInput.value = g.name;
+    nameInput.disabled = isDefault;
+    nameInput.onchange = () => { g.name = nameInput.value.trim() || g.name; nameInput.value = g.name; refreshMoveTo(); };
+    sec.querySelector('.gcount').textContent = members.length;
+    const allSel = members.every(f => selected.has(f.id));
+    const gsel = sec.querySelector('.gsel');
+    gsel.checked = allSel;
+    gsel.indeterminate = !allSel && members.some(f => selected.has(f.id));
+    gsel.onchange = () => { members.forEach(f => gsel.checked ? selected.add(f.id) : selected.delete(f.id)); renderList(); };
+    const trimBox = sec.querySelector('.gtrim input');
+    trimBox.checked = g.trim;
+    trimBox.onchange = () => { g.trim = trimBox.checked; rebuild(); };
+    const ub = sec.querySelector('.gbtn');
+    if (ub) ub.onclick = () => ungroup(g);
+
+    const ul = sec.querySelector('.list');
+    for (const f of members) {
+      displayOrder.push(f.id);
+      const li = document.createElement('li');
+      li.className = 'file' + (selected.has(f.id) ? ' sel' : '');
+      li.title = 'Click to select · Shift+click to select a range';
+      li.innerHTML = `<input type="checkbox" tabindex="-1"><span class="idx"></span><img alt=""><div class="meta"><div class="name"></div><div class="size"></div></div><button class="rm" title="Remove this frame">×</button>`;
+      li.querySelector('input').checked = selected.has(f.id);
+      li.querySelector('.idx').textContent = animIndex.get(f.id);
+      li.querySelector('img').src = f.url;
+      li.querySelector('.name').textContent = f.name;
+      li.querySelector('.size').textContent = `${f.img.naturalWidth} × ${f.img.naturalHeight}`;
+      li.onclick = e => onFrameClick(e, f);
+      li.querySelector('.rm').onclick = e => { e.stopPropagation(); removeFrame(f); };
+      ul.appendChild(li);
+    }
+    box.appendChild(sec);
+  }
+  $('dropEmpty').hidden = frames.length > 0;
+  const nGroups = groups.length - 1;
+  $('countHint').textContent = frames.length
+    ? `${frames.length} frame${frames.length > 1 ? 's' : ''}${nGroups ? ` · ${nGroups} group${nGroups > 1 ? 's' : ''}` : ''} · animation order follows file names`
+    : 'No frames yet.';
+  $('clearBtn').disabled = !frames.length;
+  $('selbar').classList.toggle('show', selected.size > 0);
+  $('selCount').textContent = `${selected.size} selected`;
+  refreshMoveTo();
+}
+
+function refreshMoveTo() {
+  const sel = $('moveTo');
+  sel.innerHTML = '<option value="">Move to…</option>';
+  for (const g of [...groups.filter(g => g.id !== DEFAULT_GROUP), groups[0]]) {
+    const o = document.createElement('option');
+    o.value = g.id; o.textContent = g.name;
+    sel.appendChild(o);
+  }
+}
+
+$('groupBtn').onclick = createGroupFromSelection;
+$('moveTo').onchange = e => { if (e.target.value !== '') moveSelectionTo(+e.target.value); };
+$('unselectBtn').onclick = () => { selected.clear(); renderList(); };
+
+const drop = $('drop');
+$('addFiles').onclick = () => $('fileInput').click();
+$('dropEmpty').onclick = () => $('fileInput').click();
+$('fileInput').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+$('pickFolder').onclick = () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.webkitdirectory = true; inp.multiple = true;
+  inp.onchange = () => addFiles(inp.files);
+  inp.click();
+};
+$('clearBtn').onclick = () => {
+  frames.forEach(f => URL.revokeObjectURL(f.url));
+  frames = []; selected.clear(); pruneSelection();
+  renderList(); rebuild();
+};
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', e => { if (!drop.contains(e.relatedTarget)) drop.classList.remove('over'); });
+drop.addEventListener('drop', async e => { e.preventDefault(); drop.classList.remove('over'); addFiles(await filesFromDrop(e.dataTransfer)); });
+// also allow dropping anywhere on the page
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', async e => { if (!drop.contains(e.target)) { e.preventDefault(); addFiles(await filesFromDrop(e.dataTransfer)); } });
+
+// ---------- trim ----------
+function getTrimBounds(img) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w * 4;
+    for (let x = 0; x < w; x++) {
+      if (data[row + x * 4 + 3] !== 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return { x: 0, y: 0, w: 1, h: 1 }; // fully transparent frame
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+// ---------- MaxRects packer (Best Short Side Fit) ----------
+function maxRectsPack(binW, binH, sizes) {
+  let free = [{ x: 0, y: 0, w: binW, h: binH }];
+  const placed = new Array(sizes.length);
+  // place larger rects first
+  const order = sizes.map((s, i) => i).sort((a, b) =>
+    Math.max(sizes[b].w, sizes[b].h) - Math.max(sizes[a].w, sizes[a].h) || sizes[b].w * sizes[b].h - sizes[a].w * sizes[a].h);
+  for (const i of order) {
+    const { w, h } = sizes[i];
+    let best = null, bestShort = Infinity, bestLong = Infinity;
+    for (const f of free) {
+      if (w <= f.w && h <= f.h) {
+        const short = Math.min(f.w - w, f.h - h), long = Math.max(f.w - w, f.h - h);
+        if (short < bestShort || (short === bestShort && long < bestLong)) {
+          best = { x: f.x, y: f.y, w, h }; bestShort = short; bestLong = long;
+        }
+      }
+    }
+    if (!best) return null;
+    placed[i] = best;
+    // split free rects intersecting the placed one
+    const next = [];
+    for (const f of free) {
+      if (best.x >= f.x + f.w || best.x + best.w <= f.x || best.y >= f.y + f.h || best.y + best.h <= f.y) { next.push(f); continue; }
+      if (best.x > f.x) next.push({ x: f.x, y: f.y, w: best.x - f.x, h: f.h });
+      if (best.x + best.w < f.x + f.w) next.push({ x: best.x + best.w, y: f.y, w: f.x + f.w - best.x - best.w, h: f.h });
+      if (best.y > f.y) next.push({ x: f.x, y: f.y, w: f.w, h: best.y - f.y });
+      if (best.y + best.h < f.y + f.h) next.push({ x: f.x, y: best.y + best.h, w: f.w, h: f.y + f.h - best.y - best.h });
+    }
+    // prune rects contained in others
+    free = next.filter((a, ai) => !next.some((b, bi) => bi !== ai &&
+      a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h && (bi < ai || a.w !== b.w || a.h !== b.h || a.x !== b.x || a.y !== b.y)));
+  }
+  return placed;
+}
+
+const nextPot = n => { let p = 1; while (p < n) p *= 2; return p; };
+
+// Try several bin widths and keep the layout with the smallest final area.
+function findLayout(sizes, pad, maxSize, pot) {
+  const padded = sizes.map(s => ({ w: s.w + pad, h: s.h + pad }));
+  const minW = Math.max(...sizes.map(s => s.w));
+  const minH = Math.max(...sizes.map(s => s.h));
+  if (minW > maxSize || minH > maxSize) return null;
+  const area = padded.reduce((a, s) => a + s.w * s.h, 0);
+  const widths = new Set();
+  if (pot) { for (let w = nextPot(minW); w <= maxSize; w *= 2) widths.add(w); }
+  else {
+    const steps = 48;
+    for (let k = 0; k <= steps; k++) widths.add(Math.round(minW + (maxSize - minW) * k / steps));
+    widths.add(Math.ceil(Math.sqrt(area)));
+    const uniq = [...new Map(padded.map(s => [s.w, s])).values()].slice(0, 32);
+    for (const s of uniq) for (let n = 1; n <= sizes.length; n++) { const w = s.w * n; if (w - pad > maxSize) break; if (w - pad >= minW) widths.add(w - pad); }
+  }
+  const layouts = [];
+  for (const w of [...widths].filter(w => w >= minW && w <= maxSize)) {
+    // bin gets +pad so the last column/row needs no trailing padding
+    const placed = maxRectsPack(w + pad, maxSize + pad, padded);
+    if (!placed) continue;
+    let usedW = 0, usedH = 0;
+    placed.forEach((p, i) => { usedW = Math.max(usedW, p.x + sizes[i].w); usedH = Math.max(usedH, p.y + sizes[i].h); });
+    if (pot) { usedW = nextPot(usedW); usedH = nextPot(usedH); }
+    layouts.push({ area: usedW * usedH, w: usedW, h: usedH, placed });
+  }
+  if (!layouts.length) return null;
+  // among layouts within 10% of the smallest area, prefer the most square one
+  const minArea = Math.min(...layouts.map(l => l.area));
+  const ratio = l => Math.max(l.w, l.h) / Math.min(l.w, l.h);
+  return layouts.filter(l => l.area <= minArea * 1.1)
+    .sort((a, b) => ratio(a) - ratio(b) || a.area - b.area)[0];
+}
+
+// ---------- build ----------
+function opts() {
+  return {
+    pad: Math.max(0, parseInt($('optPadding').value, 10) || 0),
+    maxSize: parseInt($('optMax').value, 10),
+    pot: $('optPot').checked,
+    keepExt: $('optExt').checked,
+    name: ($('optName').value.trim() || 'sprite').replace(/\.(png|json)$/i, ''),
+  };
+}
+
+function frameKey(name, keepExt) { return keepExt ? name : name.replace(/\.png$/i, ''); }
+
+function build() {
+  if (!frames.length) return null;
+  const o = opts();
+  const items = frames.map(f => {
+    const sw = f.img.naturalWidth, sh = f.img.naturalHeight;
+    const g = groupOf(f);
+    const t = g.trim ? (f.trimBounds || (f.trimBounds = getTrimBounds(f.img))) : { x: 0, y: 0, w: sw, h: sh };
+    return { f, g, sw, sh, t };
+  });
+  const layout = findLayout(items.map(it => ({ w: it.t.w, h: it.t.h })), o.pad, o.maxSize, o.pot);
+  if (!layout) throw new Error(`Frames do not fit in ${o.maxSize}×${o.maxSize}. Increase Max size, enable Trim or reduce Padding.`);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = layout.w; canvas.height = layout.h;
+  const ctx = canvas.getContext('2d');
+  const json = { frames: {}, meta: {
+    app: 'Sprite Packer', version: '1.0', image: o.name + '.png', format: 'RGBA8888',
+    size: { w: layout.w, h: layout.h }, scale: '1',
+  } };
+  const rects = [];
+  items.forEach((it, i) => {
+    const p = layout.placed[i];
+    ctx.drawImage(it.f.img, it.t.x, it.t.y, it.t.w, it.t.h, p.x, p.y, it.t.w, it.t.h);
+    const trimmed = it.t.x !== 0 || it.t.y !== 0 || it.t.w !== it.sw || it.t.h !== it.sh;
+    const key = frameKey(it.f.name, o.keepExt);
+    json.frames[key] = {
+      frame: { x: p.x, y: p.y, w: it.t.w, h: it.t.h },
+      rotated: false,
+      trimmed,
+      spriteSourceSize: { x: it.t.x, y: it.t.y, w: it.t.w, h: it.t.h },
+      sourceSize: { w: it.sw, h: it.sh },
+    };
+    rects.push({ key, color: it.g.color, ...json.frames[key] });
+  });
+  return { canvas, json, rects, opts: o };
+}
+
+let rebuildTimer = 0;
+function rebuild() {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => {
+    try {
+      result = build();
+      if (result && $('msg').classList.contains('err')) setMsg('', '');
+    } catch (e) { result = null; setMsg(e.message, 'err'); }
+    render();
+  }, 30);
+}
+['optPadding', 'optMax', 'optPot', 'optExt', 'optName'].forEach(id => $(id).addEventListener('input', rebuild));
+
+// ---------- render ----------
+function setMsg(t, cls) { $('msg').textContent = t; $('msg').className = 'msg ' + (cls || ''); }
+
+function render() {
+  const has = !!result;
+  $('empty').hidden = has;
+  $('result').style.display = has ? 'flex' : 'none';
+  ['dlBoth', 'dlPng', 'dlJson'].forEach(id => $(id).disabled = !has);
+  stopPhaser();
+  if (!has) { stopAnim(); return; }
+  drawSheet();
+  const srcArea = result.rects.reduce((a, r) => a + r.sourceSize.w * r.sourceSize.h, 0);
+  const { w, h } = result.json.meta.size;
+  const trimmedCount = result.rects.filter(r => r.trimmed).length;
+  $('stats').innerHTML =
+    `<span>Sheet: <b>${w} × ${h}</b> px</span><span>Frames: <b>${result.rects.length}</b></span>` +
+    `<span>Trimmed: <b>${trimmedCount}</b></span>` +
+    `<span>Area vs. original frames: <b>${Math.round(w * h / srcArea * 100)}%</b></span>`;
+  $('jsonView').textContent = JSON.stringify(result.json, null, 2);
+  $('code').textContent = phaserSnippet();
+  startAnim();
+}
+
+function phaserSnippet() {
+  const o = result.opts;
+  const keys = result.rects.map(r => r.key);
+  const m = keys[0].match(/^(.*?)(\d+)(\D*)$/);
+  let gen;
+  const consecutive = m && keys.every((k, i) => {
+    const mm = k.match(/^(.*?)(\d+)(\D*)$/);
+    return mm && mm[1] === m[1] && mm[3] === m[3] && mm[2].length === m[2].length && +mm[2] === +m[2] + i;
+  });
+  if (consecutive) {
+    gen = `this.anims.generateFrameNames('${o.name}', {\n    prefix: '${m[1]}', suffix: '${m[3]}',\n    start: ${+m[2]}, end: ${+m[2] + keys.length - 1}, zeroPad: ${m[2].length}\n  })`;
+  } else {
+    gen = `this.textures.get('${o.name}').getFrameNames()\n    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))\n    .map(frame => ({ key: '${o.name}', frame }))`;
+  }
+  const { loop, end } = animOpts();
+  const repeat = loop ? `repeat: -1            // loop forever` : `repeat: 0             // play once`;
+  const hide = !loop && end === 'hide' ? `,\n  hideOnComplete: true  // hide sprite when done` : '';
+  const endNote = loop ? '' : end === 'hold'
+    ? `\n// Phaser keeps the last frame by default when the animation completes.`
+    : end === 'first'
+      ? `\nsprite.on('animationcomplete', () => sprite.setFrame('${keys[0]}'));  // return to first frame`
+      : '';
+  return `// preload()
+this.load.atlas('${o.name}', '${o.name}.png', '${o.name}.json');
+
+// create()
+this.anims.create({
+  key: '${o.name}_anim',
+  frames: ${gen},
+  frameRate: ${fps()},
+  ${repeat}${hide}
+});
+const sprite = this.add.sprite(400, 300, '${o.name}').play('${o.name}_anim');${endNote}`;
+}
+
+function drawSheet() {
+  const z = parseFloat($('zoom').value);
+  const v = $('sheetView');
+  const { width, height } = result.canvas;
+  v.width = Math.max(1, Math.round(width * z)); v.height = Math.max(1, Math.round(height * z));
+  const ctx = v.getContext('2d');
+  ctx.imageSmoothingEnabled = z < 1;
+  ctx.drawImage(result.canvas, 0, 0, v.width, v.height);
+  if ($('showBounds').checked) {
+    ctx.lineWidth = 1; ctx.font = '11px system-ui';
+    result.rects.forEach((r, i) => {
+      ctx.strokeStyle = ctx.fillStyle = r.color; // colored by group
+      ctx.strokeRect(r.frame.x * z + .5, r.frame.y * z + .5, r.frame.w * z - 1, r.frame.h * z - 1);
+      ctx.fillText(String(i + 1), r.frame.x * z + 4, r.frame.y * z + 13);
+    });
+  }
+}
+$('zoom').onchange = () => result && drawSheet();
+$('showBounds').onchange = () => result && drawSheet();
+
+// canvas animation preview — reconstructs each frame from the sheet using the JSON data
+const fps = () => Math.min(120, Math.max(1, parseInt($('fps').value, 10) || 24));
+const animOpts = () => ({ loop: $('optLoop').checked, end: $('optEnd').value });
+let animRaf = 0, animIdx = 0, animLast = 0, playing = true, animHidden = false, animDone = false;
+function startAnim() {
+  stopAnim();
+  const v = $('animView');
+  v.width = Math.max(...result.rects.map(r => r.sourceSize.w));
+  v.height = Math.max(...result.rects.map(r => r.sourceSize.h));
+  animIdx = 0; animLast = 0; animHidden = false; animDone = false; setPlaying(true);
+  const tick = t => {
+    if (!animLast) animLast = t;
+    if (playing && t - animLast >= 1000 / fps()) {
+      animLast = t;
+      if (animIdx < result.rects.length - 1) animIdx++;
+      else if (animOpts().loop) animIdx = 0;
+      else {
+        const end = animOpts().end;
+        if (end === 'first') animIdx = 0;
+        if (end === 'hide') animHidden = true;
+        animDone = true;
+        setPlaying(false);
+      }
+    }
+    drawAnimFrame();
+    animRaf = requestAnimationFrame(tick);
+  };
+  drawAnimFrame();
+  animRaf = requestAnimationFrame(tick);
+}
+function drawAnimFrame() {
+  const v = $('animView'), ctx = v.getContext('2d');
+  const r = result.rects[Math.min(animIdx, result.rects.length - 1)];
+  ctx.clearRect(0, 0, v.width, v.height);
+  if (animHidden) { $('frameLabel').textContent = 'Finished (sprite hidden)'; return; }
+  ctx.drawImage(result.canvas, r.frame.x, r.frame.y, r.frame.w, r.frame.h,
+    r.spriteSourceSize.x, r.spriteSourceSize.y, r.frame.w, r.frame.h);
+  $('frameLabel').textContent = `${animIdx + 1}/${result.rects.length} · ${r.key}`;
+}
+function stopAnim() { cancelAnimationFrame(animRaf); }
+function setPlaying(p) { playing = p; $('playBtn').textContent = p ? 'Pause' : 'Play'; }
+function replay() {
+  if (!result) return;
+  animIdx = 0; animLast = 0; animHidden = false; animDone = false; setPlaying(true);
+  if (phaserSprite) { phaserSprite.setVisible(true); phaserSprite.play('anim'); }
+}
+$('playBtn').onclick = () => {
+  // pressing play after a non-looping run finished starts it over
+  if (animDone) return replay();
+  setPlaying(!playing);
+};
+$('replayBtn').onclick = replay;
+$('fps').oninput = () => { if (result) { $('code').textContent = phaserSnippet(); restartPhaserIfRunning(); } };
+function onAnimOptsChange() {
+  $('optEnd').disabled = $('optLoop').checked;
+  if (!result) return;
+  $('code').textContent = phaserSnippet();
+  restartPhaserIfRunning();
+  replay();
+}
+$('optLoop').onchange = onAnimOptsChange;
+$('optEnd').onchange = onAnimOptsChange;
+
+// ---------- export ----------
+const sheetBlob = () => new Promise(res => result.canvas.toBlob(res, 'image/png'));
+const jsonBlob = () => new Blob([JSON.stringify(result.json, null, 2)], { type: 'application/json' });
+function download(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+$('dlPng').onclick = async () => download(await sheetBlob(), result.opts.name + '.png');
+$('dlJson').onclick = () => download(jsonBlob(), result.opts.name + '.json');
+$('dlBoth').onclick = async () => {
+  download(await sheetBlob(), result.opts.name + '.png');
+  setTimeout(() => download(jsonBlob(), result.opts.name + '.json'), 300);
+};
+
+// ---------- Phaser check ----------
+let phaserGame = null, phaserUrls = [], phaserSprite = null;
+function loadPhaser() {
+  if (window.Phaser) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = PHASER_URL; s.onload = res;
+    s.onerror = () => rej(new Error('Could not load Phaser from the CDN (internet required).'));
+    document.head.appendChild(s);
+  });
+}
+function stopPhaser() {
+  if (phaserGame) { phaserGame.destroy(true); phaserGame = null; phaserSprite = null; }
+  phaserUrls.forEach(u => URL.revokeObjectURL(u)); phaserUrls = [];
+  $('phaserBox').innerHTML = 'Click "Run in Phaser" to test';
+  $('phaserMsg').textContent = 'Loads the exact PNG + JSON generated here';
+  $('phaserMsg').style.color = '';
+}
+function restartPhaserIfRunning() { if (phaserGame) runPhaser(); }
+async function runPhaser() {
+  if (!result) return;
+  const snapshot = result;
+  try {
+    $('phaserMsg').textContent = 'Loading Phaser…';
+    await loadPhaser();
+    stopPhaser();
+    const pngUrl = URL.createObjectURL(await sheetBlob());
+    const jsonUrl = URL.createObjectURL(jsonBlob());
+    phaserUrls = [pngUrl, jsonUrl];
+    const box = $('phaserBox'); box.innerHTML = '';
+    const sw = Math.max(...snapshot.rects.map(r => r.sourceSize.w));
+    const sh = Math.max(...snapshot.rects.map(r => r.sourceSize.h));
+    const name = snapshot.opts.name;
+    const { loop, end } = animOpts();
+    const rate = fps();
+    phaserGame = new Phaser.Game({
+      type: Phaser.AUTO, parent: box, width: sw, height: sh, transparent: true,
+      scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+      scene: {
+        preload() { this.load.atlas(name, pngUrl, jsonUrl); },
+        create() {
+          const names = snapshot.rects.map(r => r.key);
+          const loaded = this.textures.get(name).getFrameNames();
+          const missing = names.filter(n => !loaded.includes(n));
+          this.anims.create({
+            key: 'anim', frames: names.map(frame => ({ key: name, frame })), frameRate: rate,
+            repeat: loop ? -1 : 0, hideOnComplete: !loop && end === 'hide',
+          });
+          // outline the untrimmed source box so offsets are visible
+          this.add.rectangle(sw / 2, sh / 2, sw - 1, sh - 1).setStrokeStyle(1, 0x4f9cff, 0.5);
+          const spr = this.add.sprite(sw / 2, sh / 2, name, names[0]).play('anim');
+          if (!loop && end === 'first') spr.on('animationcomplete', () => spr.setFrame(names[0]));
+          phaserSprite = spr;
+          window.__phaserCheck = { loadedFrames: loaded.length, missing };
+          $('phaserMsg').textContent = missing.length
+            ? `Error: ${missing.length} frame(s) missing from the atlas`
+            : `OK: Phaser ${Phaser.VERSION} loaded ${loaded.length} frames`;
+          $('phaserMsg').style.color = missing.length ? 'var(--err)' : 'var(--ok)';
+        },
+      },
+    });
+  } catch (e) { $('phaserMsg').textContent = e.message; $('phaserMsg').style.color = 'var(--err)'; }
+}
+$('phaserBtn').onclick = runPhaser;
+
+// expose for scripted use / testing
+window.SpritePacker = { addFiles, get frames() { return frames; }, get groups() { return groups; }, get result() { return result; } };
+</script>
+</body>
+</html>
